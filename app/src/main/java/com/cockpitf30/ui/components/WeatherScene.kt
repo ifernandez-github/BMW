@@ -1,6 +1,6 @@
 package com.cockpitf30.ui.components
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -9,19 +9,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.cockpitf30.weather.WeatherKind
+import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -65,161 +69,230 @@ private class Particles(count: Int, seed: Int) {
     }
 }
 
+/** Nubes pre-renderizadas y objetos reutilizables de una escena, creados una vez por tamaño. */
+private class SceneCache(val clouds: List<ImageBitmap>, val darkClouds: List<ImageBitmap>, val flake: ImageBitmap) {
+    val bolt = Path()
+    var boltCycle = -1
+    val gust = Path()
+}
+
 /**
- * Escena animada del tiempo: cielo, sol con rayos o luna con estrellas, capas de nubes con
- * parallax, lluvia inclinada, relámpagos, nieve con vaivén o bancos de niebla. [maxParticles]
- * limita el coste (unas 100 a pantalla completa, menos en la tarjeta).
+ * Escena animada y realista del tiempo: cielo degradado, sol volumétrico o luna con estrellas,
+ * cúmulos esponjosos en tres capas con parallax, lluvia en dos profundidades inclinada por el
+ * viento real, tormenta con rayos ramificados, nieve desenfocada, niebla y ráfagas de viento.
+ * [maxParticles] limita el coste (unas 110 a pantalla completa, menos en la tarjeta).
  */
 @Composable
 fun WeatherScene(
     kind: WeatherKind, isDay: Boolean, code: Int, modifier: Modifier = Modifier, maxParticles: Int = 100,
     /** Posición del sol o la luna, en fracción del ancho y alto. */
     sunAt: Offset = Offset(0.78f, 0.3f),
+    windKmh: Int = 0,
+    /** De dónde viene el viento (grados, 0 = norte). */
+    windDir: Int = 270,
+    /** Luz cálida en el horizonte (amanecer o atardecer). */
+    warm: Boolean = false,
+    drawSky: Boolean = true,
 ) {
     val time = rememberSceneTime()
     val drops = remember(maxParticles) { Particles(maxParticles, 1) }
-    val stars = remember { Particles(40, 2) }
+    val stars = remember { Particles(50, 2) }
     val intensity = precipitation(code)
-    Canvas(modifier.clipToBounds()) {
-        val t = time.value
-        sky(kind, isDay)
-        when (kind) {
-            WeatherKind.CLEAR -> if (isDay) sun(t, Offset(size.width * sunAt.x, size.height * sunAt.y), size.minDimension * 0.16f) else night(t, stars, sunAt)
-            WeatherKind.PARTLY_CLOUDY -> {
-                if (isDay) sun(t, Offset(size.width * sunAt.x, size.height * sunAt.y), size.minDimension * 0.13f) else night(t, stars, sunAt)
-                clouds(t, layers = 2, dim = false)
+    // Hacia dónde sopla: componente horizontal (+ derecha), y fuerza 0..1.
+    val windX = -sin(Math.toRadians(windDir.toDouble())).toFloat()
+    val windForce = (windKmh / 60f).coerceIn(0f, 1f)
+    Spacer(
+        modifier.clipToBounds().drawWithCache {
+            val cloudW = (size.width * 0.36f).toInt()
+            val cache = SceneCache(
+                clouds = List(3) { renderCloud(cloudW, 11 + it * 7, false, this) },
+                darkClouds = List(3) { renderCloud(cloudW, 31 + it * 5, true, this) },
+                flake = renderFlake((size.minDimension * 0.03f).toInt().coerceIn(8, 40), this),
+            )
+            onDrawBehind {
+                val t = time.value
+                if (drawSky) sky(kind, isDay, warm)
+                val sun = Offset(size.width * sunAt.x, size.height * sunAt.y)
+                when (kind) {
+                    WeatherKind.CLEAR -> {
+                        if (isDay) glowSun(sun, size.minDimension * 0.13f, t) else night(t, stars, sun)
+                        cloudLayers(t, cache.clouds, density = 0.25f, windX, windForce)
+                    }
+                    WeatherKind.PARTLY_CLOUDY -> {
+                        if (isDay) glowSun(sun, size.minDimension * 0.11f, t) else night(t, stars, sun)
+                        cloudLayers(t, cache.clouds, density = 0.65f, windX, windForce)
+                    }
+                    WeatherKind.CLOUDY -> cloudLayers(t, if (isDay) cache.clouds else cache.darkClouds, density = 1f, windX, windForce)
+                    WeatherKind.FOG -> {
+                        cloudLayers(t, cache.clouds, density = 0.5f, windX, windForce, alpha = 0.6f)
+                        fog(t)
+                    }
+                    WeatherKind.DRIZZLE, WeatherKind.RAIN -> {
+                        cloudLayers(t, cache.darkClouds, density = 1f, windX, windForce)
+                        rain(t, drops, (drops.n * intensity).toInt().coerceAtLeast(14), intensity, windX * windForce, fine = kind == WeatherKind.DRIZZLE)
+                    }
+                    WeatherKind.STORM -> {
+                        val flash = flashLevel(t)
+                        cloudLayers(t, cache.darkClouds, density = 1f, windX, windForce, glow = flash)
+                        rain(t, drops, drops.n, 1f, windX * windForce, fine = false)
+                        lightning(t, flash, cache)
+                    }
+                    WeatherKind.SNOW -> {
+                        cloudLayers(t, cache.clouds, density = 0.8f, windX, windForce)
+                        snow(t, drops, (drops.n * intensity).toInt().coerceAtLeast(18), cache.flake, windX * windForce)
+                    }
+                }
+                if (windKmh > 15) gusts(t, windKmh, windX, cache.gust)
             }
-            WeatherKind.CLOUDY -> clouds(t, layers = 3, dim = false)
-            WeatherKind.FOG -> fog(t)
-            WeatherKind.DRIZZLE, WeatherKind.RAIN -> {
-                clouds(t, layers = 3, dim = true)
-                rain(t, drops, (drops.n * intensity).toInt().coerceAtLeast(12))
-            }
-            WeatherKind.STORM -> {
-                clouds(t, layers = 3, dim = true)
-                rain(t, drops, drops.n)
-                lightning(t)
-            }
-            WeatherKind.SNOW -> {
-                clouds(t, layers = 2, dim = false)
-                snow(t, drops, (drops.n * intensity).toInt().coerceAtLeast(16))
-            }
-        }
-    }
+        },
+    )
 }
 
-private fun DrawScope.sky(kind: WeatherKind, isDay: Boolean) {
+private fun DrawScope.sky(kind: WeatherKind, isDay: Boolean, warm: Boolean) {
     val colors = when {
-        !isDay -> listOf(Color(0xFF050B1A), Color(0xFF0B1A33))
-        kind == WeatherKind.CLEAR || kind == WeatherKind.PARTLY_CLOUDY -> listOf(Color(0xFF0D4F8B), Color(0xFF1B78B8))
-        kind == WeatherKind.STORM -> listOf(Color(0xFF151A26), Color(0xFF283245))
-        else -> listOf(Color(0xFF263449), Color(0xFF3A4C63))
+        !isDay -> listOf(Color(0xFF02060F), Color(0xFF0A1630), Color(0xFF14254A))
+        kind == WeatherKind.STORM -> listOf(Color(0xFF1B1726), Color(0xFF2E2B40), Color(0xFF433F57))
+        kind == WeatherKind.CLEAR || kind == WeatherKind.PARTLY_CLOUDY -> listOf(Color(0xFF0B4AA8), Color(0xFF1F6FD0), Color(0xFF3A8EE6))
+        kind == WeatherKind.SNOW || kind == WeatherKind.FOG -> listOf(Color(0xFF5C6E86), Color(0xFF8295AD), Color(0xFFA9B8CA))
+        else -> listOf(Color(0xFF34465E), Color(0xFF4D627D), Color(0xFF6B7F99))
     }
     drawRect(Brush.verticalGradient(colors))
-}
-
-/** Sol con rayos que giran despacio y un brillo que late. */
-private fun DrawScope.sun(t: Float, c: Offset, r: Float) {
-    val pulse = 1f + 0.06f * sin(t * 1.6f)
-    drawCircle(Brush.radialGradient(listOf(Color(0xFFFFE082).copy(alpha = 0.45f), Color.Transparent), c, r * 3.2f * pulse), r * 3.2f * pulse, c)
-    rotate(t * 8f, c) {
-        for (i in 0 until 12) {
-            rotate(i * 30f, c) {
-                drawLine(Color(0xFFFFD54F).copy(alpha = 0.8f), Offset(c.x, c.y - r * 1.35f), Offset(c.x, c.y - r * (1.75f + 0.12f * sin(t * 2f + i))), r * 0.09f, StrokeCap.Round)
-            }
-        }
-    }
-    drawCircle(Brush.radialGradient(listOf(Color(0xFFFFF59D), Color(0xFFFFC107), Color(0xFFFF8F00)), Offset(c.x - r * 0.35f, c.y - r * 0.35f), r * 1.5f), r, c)
+    if (warm) drawRect(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color(0xFFFF9A4D).copy(alpha = 0.45f)))
 }
 
 /** Luna y estrellas que titilan. */
 private fun DrawScope.night(t: Float, stars: Particles, at: Offset) {
     for (i in 0 until stars.n) {
-        val a = 0.35f + 0.65f * (0.5f + 0.5f * sin(t * (1f + stars.speed[i] * 2f) + stars.phase[i] * 6.28f))
-        drawCircle(Color.White.copy(alpha = a), 1f + stars.size[i] * 2.2f, Offset(stars.x[i] * size.width, stars.phase[i] * size.height * 0.7f))
+        val a = 0.3f + 0.7f * (0.5f + 0.5f * sin(t * (0.8f + stars.speed[i] * 2f) + stars.phase[i] * 6.28f))
+        drawCircle(Color.White.copy(alpha = a), 0.8f + stars.size[i] * 1.8f, Offset(stars.x[i] * size.width, stars.phase[i] * size.height * 0.75f))
     }
-    val c = Offset(size.width * at.x, size.height * at.y)
-    val r = size.minDimension * 0.12f
-    drawCircle(Brush.radialGradient(listOf(Color(0xFFB3C7FF).copy(alpha = 0.3f), Color.Transparent), c, r * 2.6f), r * 2.6f, c)
-    drawCircle(Color(0xFFE6ECF8), r, c)
-    drawCircle(Color(0xFF0A1730), r * 0.9f, Offset(c.x + r * 0.45f, c.y - r * 0.25f))
+    softMoon(at, size.minDimension * 0.1f)
 }
 
-/** Capas de nubes que se desplazan a distinta velocidad (parallax). */
-private fun DrawScope.clouds(t: Float, layers: Int, dim: Boolean) {
-    for (layer in 0 until layers) {
-        val depth = 1f - layer * 0.28f
-        val speed = size.width * (0.012f + 0.02f * layer)
-        val w = size.width * 0.28f * depth
-        val y = size.height * (0.02f + 0.09f * layer)
-        val alpha = (if (dim) 0.42f else 0.28f) + 0.1f * layer
-        val base = if (dim) Color(0xFF8A97AA) else Color.White
-        for (k in 0..2) {
-            val span = size.width + w
-            val x = ((k * span / 2.4f + t * speed + layer * 137f) % span) - w
-            cloud(Offset(x, y + k * size.height * 0.03f), w, base.copy(alpha = alpha))
+/**
+ * Tres capas de cúmulos con parallax: al fondo pequeñas y tenues, delante grandes. [density]
+ * decide cuántas nubes se ven. Se desplazan hacia donde sopla el viento.
+ */
+private fun DrawScope.cloudLayers(
+    t: Float, bitmaps: List<ImageBitmap>, density: Float, windX: Float, windForce: Float,
+    alpha: Float = 1f, glow: Float = 0f,
+) {
+    val dir = if (windX < 0) -1f else 1f
+    val layers = listOf(Triple(0.55f, 0.55f, 0.04f), Triple(0.8f, 0.8f, 0.14f), Triple(1.1f, 0.95f, 0.26f))
+    layers.forEachIndexed { li, (scale, a, yFrac) ->
+        val count = (1 + density * 3).toInt() - (if (li == 0 && density < 0.5f) 1 else 0)
+        val speed = size.width * (0.006f + 0.012f * li) * (0.6f + windForce * 2f)
+        val bmp = bitmaps[li % bitmaps.size]
+        val w = bmp.width * scale
+        val h = bmp.height * scale
+        val span = size.width + w
+        for (k in 0 until count) {
+            val base = k * span / count + li * 173f
+            val x = ((base + dir * t * speed) % span + span) % span - w
+            val y = size.height * yFrac + (k % 2) * size.height * 0.05f
+            drawImage(
+                bmp, dstOffset = IntOffset(x.toInt(), y.toInt()), dstSize = IntSize(w.toInt(), h.toInt()),
+                alpha = (a * alpha).coerceIn(0f, 1f),
+            )
+            if (glow > 0f) {
+                // Los relámpagos iluminan las nubes desde dentro.
+                drawOval(Brush.radialGradient(listOf(Color(0xFFE8E4FF).copy(alpha = glow * 0.5f), Color.Transparent), Offset(x + w / 2, y + h * 0.6f), w * 0.45f), Offset(x, y), Size(w, h))
+            }
         }
     }
 }
 
-private fun DrawScope.cloud(o: Offset, w: Float, color: Color) {
-    val h = w * 0.42f
-    drawCircle(color, w * 0.18f, Offset(o.x + w * 0.28f, o.y + h * 0.55f))
-    drawCircle(color, w * 0.24f, Offset(o.x + w * 0.52f, o.y + h * 0.38f))
-    drawCircle(color, w * 0.16f, Offset(o.x + w * 0.76f, o.y + h * 0.6f))
-    drawRoundRect(color, Offset(o.x + w * 0.1f, o.y + h * 0.55f), Size(w * 0.82f, h * 0.45f), CornerRadius(h * 0.22f))
+/**
+ * Lluvia en dos profundidades: lejos gotas finas y lentas, cerca más gruesas y rápidas. Trazos
+ * con cola tenue y cabeza más opaca, inclinados por el viento, y salpicaduras abajo.
+ */
+private fun DrawScope.rain(t: Float, p: Particles, count: Int, intensity: Float, wind: Float, fine: Boolean) {
+    val n = count.coerceAtMost(p.n)
+    val slant = 0.18f + wind * 0.6f
+    for (i in 0 until n) {
+        val near = i % 3 == 0
+        val v = (if (near) 1.6f else 1.0f) + p.speed[i] * 0.6f
+        val len = size.height * (if (fine) 0.035f else if (near) 0.09f else 0.055f) * (0.7f + intensity * 0.5f)
+        val y = ((p.phase[i] + t * v) % 1.15f) * size.height - len
+        val x = p.x[i] * size.width * 1.3f - size.width * 0.15f + (y / size.height) * slant * size.height
+        val dx = len * slant
+        val width = (if (fine) 1f else if (near) 2.4f else 1.4f) * (0.8f + p.size[i] * 0.5f)
+        drawLine(Color(0xFFCFE6FF).copy(alpha = if (near) 0.25f else 0.15f), Offset(x - dx, y - len), Offset(x, y), width, StrokeCap.Round)
+        drawLine(Color(0xFFE6F3FF).copy(alpha = if (near) 0.75f else 0.45f), Offset(x - dx * 0.35f, y - len * 0.35f), Offset(x, y), width, StrokeCap.Round)
+        if (near && !fine && y > size.height * 0.92f) {
+            val s = (y - size.height * 0.92f) / (size.height * 0.08f)
+            drawOval(Color(0xFFE6F3FF).copy(alpha = (0.5f * (1f - s)).coerceAtLeast(0f)), Offset(x - 8f * s - 3f, size.height - 6f), Size(16f * s + 6f, 4f))
+        }
+    }
 }
 
-/** Gotas inclinadas cayendo. */
-private fun DrawScope.rain(t: Float, p: Particles, count: Int) {
-    val len = size.height * 0.07f
-    val slant = len * 0.35f
-    val color = Color(0xFFAFD8FF).copy(alpha = 0.6f)
+/** Copos desenfocados de varios tamaños que caen con vaivén y deriva por el viento. */
+private fun DrawScope.snow(t: Float, p: Particles, count: Int, flake: ImageBitmap, wind: Float) {
     for (i in 0 until count.coerceAtMost(p.n)) {
-        val v = 0.9f + p.speed[i] * 0.8f
-        val y = ((p.phase[i] + t * v) % 1.2f) * size.height - len
-        val x = p.x[i] * (size.width + slant * 6) - slant * 3 - (y / size.height) * slant * 3
-        drawLine(color, Offset(x, y), Offset(x - slant, y + len * (0.6f + p.size[i] * 0.6f)), 1.6f + p.size[i] * 1.4f, StrokeCap.Round)
+        val near = i % 4 == 0
+        val v = (if (near) 0.16f else 0.08f) + p.speed[i] * 0.1f
+        val y = ((p.phase[i] + t * v) % 1.1f) * size.height - 20f
+        val x = p.x[i] * size.width + sin(t * (0.6f + p.speed[i]) + p.phase[i] * 6.28f) * size.width * 0.02f + wind * y * 0.3f
+        val s = (flake.width * (if (near) 1f else 0.55f) * (0.6f + p.size[i] * 0.6f)).toInt()
+        drawImage(flake, dstOffset = IntOffset(((x % size.width) + size.width).toInt() % size.width.toInt(), y.toInt()), dstSize = IntSize(s, s), alpha = if (near) 0.95f else 0.7f)
     }
 }
 
-/** Copos cayendo con vaivén. */
-private fun DrawScope.snow(t: Float, p: Particles, count: Int) {
-    for (i in 0 until count.coerceAtMost(p.n)) {
-        val v = 0.08f + p.speed[i] * 0.12f
-        val y = ((p.phase[i] + t * v) % 1.1f) * size.height - 10f
-        val x = p.x[i] * size.width + sin(t * (0.8f + p.speed[i]) + p.phase[i] * 6.28f) * size.width * 0.02f
-        drawCircle(Color.White.copy(alpha = 0.85f), 2f + p.size[i] * 4f, Offset(x, y))
+/** Intensidad del destello en este instante (0 si no hay relámpago). */
+private fun flashLevel(t: Float): Float {
+    val local = t % 6.5f
+    return when {
+        local < 0.07f -> 1f
+        local < 0.14f -> 0.3f
+        local < 0.21f -> 0.85f
+        local < 0.45f -> 0.85f * (1f - (local - 0.21f) / 0.24f)
+        else -> 0f
     }
 }
 
-/** Relámpago ocasional: destello de fondo y un rayo en zigzag. */
-private fun DrawScope.lightning(t: Float) {
-    val period = 5.5f
-    val local = t % period
-    if (local > 0.35f) return
-    val flash = if (local < 0.08f || (local > 0.16f && local < 0.24f)) 0.55f else 0.15f
-    drawRect(Color.White.copy(alpha = flash * 0.5f))
-    val cycle = (t / period).toInt()
-    val x0 = size.width * (0.25f + 0.5f * ((cycle * 37) % 10) / 10f)
-    val bolt = Path().apply {
-        moveTo(x0, size.height * 0.25f)
-        lineTo(x0 - size.width * 0.03f, size.height * 0.45f); lineTo(x0 + size.width * 0.01f, size.height * 0.46f)
-        lineTo(x0 - size.width * 0.04f, size.height * 0.72f)
+/** Rayo ramificado (uno distinto en cada descarga) e iluminación breve del cielo. */
+private fun DrawScope.lightning(t: Float, flash: Float, cache: SceneCache) {
+    if (flash <= 0f) return
+    val cycle = (t / 6.5f).toInt()
+    if (cycle != cache.boltCycle) {
+        cache.boltCycle = cycle
+        val x0 = size.width * (0.2f + 0.6f * Random(cycle).nextFloat())
+        lightningPath(Offset(x0, size.height * 0.18f), size.height * 0.7f, cycle, cache.bolt)
     }
-    drawPath(bolt, Color(0xFFFFF6C2).copy(alpha = flash + 0.3f), style = androidx.compose.ui.graphics.drawscope.Stroke(5f, cap = StrokeCap.Round))
+    drawRect(Color(0xFFDCD8FF).copy(alpha = flash * 0.22f))
+    drawPath(cache.bolt, Color(0xFFB9B2FF).copy(alpha = flash * 0.35f), style = Stroke(12f, cap = StrokeCap.Round))
+    drawPath(cache.bolt, Color.White.copy(alpha = flash), style = Stroke(3f, cap = StrokeCap.Round))
 }
 
-/** Bancos de niebla translúcidos que se desplazan. */
+/** Bancos de niebla: grandes manchas difusas que se desplazan. */
 private fun DrawScope.fog(t: Float) {
-    for (i in 0 until 5) {
-        val y = size.height * (0.25f + i * 0.14f)
-        val w = size.width * 1.4f
-        val x = ((t * size.width * (0.015f + i * 0.006f) + i * 211f) % w) - w * 0.4f
-        drawRoundRect(
-            Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.14f), Color.Transparent), x, x + w * 0.8f),
-            Offset(x, y), Size(w * 0.8f, size.height * 0.07f), CornerRadius(size.height * 0.035f),
+    for (i in 0 until 6) {
+        val y = size.height * (0.3f + i * 0.12f)
+        val r = size.width * (0.28f + (i % 3) * 0.06f)
+        val span = size.width + r * 2
+        val x = ((t * size.width * (0.012f + i * 0.004f) + i * 311f) % span) - r
+        drawOval(
+            Brush.radialGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent), Offset(x, y), r),
+            Offset(x - r, y - r * 0.25f), Size(r * 2, r * 0.5f),
         )
     }
 }
 
+/** Líneas de flujo curvas y translúcidas que cruzan la pantalla a la velocidad del viento real. */
+private fun DrawScope.gusts(t: Float, windKmh: Int, windX: Float, path: Path) {
+    val dir = if (windX < 0) -1f else 1f
+    val speed = size.width * (0.15f + windKmh / 100f)
+    val count = if (windKmh > 35) 7 else 4
+    for (i in 0 until count) {
+        val len = size.width * (0.18f + (i % 3) * 0.06f)
+        val span = size.width + len * 2
+        val head = ((t * speed + i * span / count) % span) - len
+        val x = if (dir > 0) head else size.width - head
+        val y = size.height * (0.2f + (i * 0.137f) % 0.65f)
+        val amp = size.height * 0.02f
+        path.reset()
+        path.moveTo(x - dir * len, y)
+        path.cubicTo(x - dir * len * 0.66f, y - amp, x - dir * len * 0.33f, y + amp, x, y + amp * cos(t + i))
+        drawPath(path, Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.35f)), if (dir > 0) x - len else x, if (dir > 0) x else x + len), style = Stroke(2.2f, cap = StrokeCap.Round))
+    }
+}

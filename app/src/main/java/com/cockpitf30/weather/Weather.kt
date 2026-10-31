@@ -2,6 +2,9 @@ package com.cockpitf30.weather
 
 import org.json.JSONObject
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import org.json.JSONArray
 
 /** Tipo de tiempo, agrupando los códigos WMO que usan Open-Meteo y la mayoría de servicios. */
 enum class WeatherKind { CLEAR, PARTLY_CLOUDY, CLOUDY, FOG, DRIZZLE, RAIN, SNOW, STORM }
@@ -30,7 +33,34 @@ fun wmoCondition(code: Int): WeatherCondition = when (code) {
     else -> WeatherCondition(WeatherKind.CLOUDY, "Desconocido")
 }
 
-data class DayForecast(val date: LocalDate, val code: Int, val minC: Int, val maxC: Int)
+data class DayForecast(
+    val date: LocalDate,
+    val code: Int,
+    val minC: Int,
+    val maxC: Int,
+    val sunrise: LocalTime? = null,
+    val sunset: LocalTime? = null,
+    val precipSumMm: Float? = null,
+    val precipProbMax: Int? = null,
+    val windMaxKmh: Int? = null,
+)
+
+/** Previsión de una hora: temperatura, cielo, lluvia y viento. */
+data class HourForecast(
+    val time: LocalDateTime,
+    val tempC: Int,
+    val code: Int,
+    val isDay: Boolean,
+    /** Probabilidad de precipitación en %, o null si el modelo no la da. */
+    val precipProb: Int?,
+    val precipMm: Float,
+    val windKmh: Int,
+    /** De dónde viene el viento, en grados (0 = norte). */
+    val windDir: Int,
+    val apparentC: Int? = null,
+    val gustKmh: Int? = null,
+    val humidity: Int? = null,
+)
 
 data class Forecast(
     val tempC: Int,
@@ -38,7 +68,10 @@ data class Forecast(
     val isDay: Boolean,
     /** El primer día es hoy. */
     val days: List<DayForecast>,
-)
+    val hours: List<HourForecast> = emptyList(),
+) {
+    fun hoursOf(date: LocalDate) = hours.filter { it.time.toLocalDate() == date }
+}
 
 /** Lugar para el que se pide la previsión. */
 data class Place(val name: String, val region: String?, val country: String?, val lat: Double, val lon: Double) {
@@ -69,6 +102,11 @@ fun parseForecast(json: String): Forecast {
             code = codes.getInt(i),
             minC = Math.round(min.getDouble(i)).toInt(),
             maxC = Math.round(max.getDouble(i)).toInt(),
+            sunrise = daily.optJSONArray("sunrise").timeAt(i),
+            sunset = daily.optJSONArray("sunset").timeAt(i),
+            precipSumMm = daily.optJSONArray("precipitation_sum").doubleAt(i)?.toFloat(),
+            precipProbMax = daily.optJSONArray("precipitation_probability_max").doubleAt(i)?.let { Math.round(it).toInt() },
+            windMaxKmh = daily.optJSONArray("wind_speed_10m_max").doubleAt(i)?.let { Math.round(it).toInt() },
         )
     }
     return Forecast(
@@ -76,8 +114,41 @@ fun parseForecast(json: String): Forecast {
         code = current.getInt("weather_code"),
         isDay = current.optInt("is_day", 1) == 1,
         days = days,
+        hours = root.optJSONObject("hourly")?.let(::parseHours).orEmpty(),
     )
 }
+
+private fun parseHours(h: JSONObject): List<HourForecast> {
+    val time = h.getJSONArray("time")
+    fun arr(name: String) = h.optJSONArray(name)
+    val temp = arr("temperature_2m")
+    val code = arr("weather_code")
+    val day = arr("is_day")
+    val prob = arr("precipitation_probability")
+    val mm = arr("precipitation")
+    val wind = arr("wind_speed_10m")
+    val dir = arr("wind_direction_10m")
+    return (0 until time.length()).map { i ->
+        HourForecast(
+            time = LocalDateTime.parse(time.getString(i)),
+            tempC = Math.round(temp?.optDouble(i) ?: 0.0).toInt(),
+            code = code?.optInt(i) ?: 0,
+            isDay = (day?.optInt(i, 1) ?: 1) == 1,
+            precipProb = prob?.takeUnless { it.isNull(i) }?.optInt(i),
+            precipMm = (mm?.optDouble(i, 0.0) ?: 0.0).toFloat(),
+            windKmh = Math.round(wind?.optDouble(i, 0.0) ?: 0.0).toInt(),
+            windDir = dir?.optInt(i) ?: 0,
+            apparentC = arr("apparent_temperature").doubleAt(i)?.let { Math.round(it).toInt() },
+            gustKmh = arr("wind_gusts_10m").doubleAt(i)?.let { Math.round(it).toInt() },
+            humidity = arr("relative_humidity_2m").doubleAt(i)?.let { Math.round(it).toInt() },
+        )
+    }
+}
+
+private fun JSONArray?.doubleAt(i: Int): Double? = if (this == null || i >= length() || isNull(i)) null else optDouble(i)
+
+private fun JSONArray?.timeAt(i: Int): LocalTime? =
+    if (this == null || i >= length() || isNull(i)) null else runCatching { LocalDateTime.parse(getString(i)).toLocalTime() }.getOrNull()
 
 /** Analiza la respuesta de https://geocoding-api.open-meteo.com/v1/search. */
 fun parsePlaces(json: String): List<Place> {

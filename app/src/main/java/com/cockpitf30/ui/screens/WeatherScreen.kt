@@ -47,6 +47,13 @@ import com.cockpitf30.ui.components.FocusTile
 import com.cockpitf30.ui.components.InitialFocus
 import com.cockpitf30.ui.components.TopBar
 import com.cockpitf30.ui.components.WeatherIcon
+import com.cockpitf30.ui.components.HourlyDetail
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import java.time.LocalDate
+import android.content.pm.ApplicationInfo
+import java.time.LocalDateTime
 import com.cockpitf30.ui.components.WeatherScene
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -74,6 +81,12 @@ fun WeatherScreen() {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var searchMessage by remember { mutableStateOf<String?>(null) }
+    // Día abierto en detalle por horas; Back vuelve a la vista de días.
+    var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
+    BackHandler(enabled = selectedDay != null) { selectedDay = null }
+    // Solo en compilaciones de depuración: forzar el tipo de tiempo de la escena para probarla.
+    val debuggable = remember { context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
+    var testCode by remember { mutableStateOf<Int?>(null) }
 
     fun select(place: Place?) {
         settings.weatherPlace = place
@@ -100,15 +113,43 @@ fun WeatherScreen() {
 
     Box(Modifier.fillMaxSize()) {
         weather.forecast?.let { f ->
-            WeatherScene(wmoCondition(f.code).kind, f.isDay, f.code, Modifier.fillMaxSize(), maxParticles = 110, sunAt = Offset(0.5f, 0.36f))
+            // Viento real de la hora actual y luz cálida cerca del amanecer o el atardecer.
+            val now = LocalDateTime.now()
+            val hour = f.hours.firstOrNull { !it.time.isBefore(now.withMinute(0).withSecond(0).withNano(0)) }
+            val today = f.days.firstOrNull()
+            val warm = listOfNotNull(today?.sunrise, today?.sunset).any { kotlin.math.abs(java.time.Duration.between(it, now.toLocalTime()).toMinutes()) < 50 }
+            val code = testCode ?: f.code
+            WeatherScene(
+                wmoCondition(code).kind, f.isDay, code, Modifier.fillMaxSize(), maxParticles = 110, sunAt = Offset(0.52f, 0.25f),
+                windKmh = if (testCode != null) 30 else hour?.windKmh ?: 0, windDir = hour?.windDir ?: 270, warm = warm,
+            )
             // Velo oscuro a la derecha (selector) y abajo para que todo se lea sobre la animación.
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.58f to Color.Transparent, 0.7f to Color.Black.copy(alpha = 0.55f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
         }
         Column(Modifier.fillMaxSize()) {
             TopBar("Tiempo") {
+                if (debuggable) {
+                    FocusTile(onClick = {
+                        val i = TEST_CODES.indexOf(testCode)
+                        testCode = TEST_CODES[(i + 1) % TEST_CODES.size]
+                    }, modifier = Modifier.height(48.dp)) {
+                        Text("Prueba: " + (testCode?.let { wmoCondition(it).text } ?: "real"), Modifier.align(Alignment.Center).padding(horizontal = 16.dp), style = MaterialTheme.typography.labelLarge)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                }
                 Text(updatedText(weather), style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
             }
+            val forecast = weather.forecast
+            val openDay = selectedDay?.let { d -> forecast?.days?.firstOrNull { it.date == d } }
+            if (forecast != null && openDay != null) {
+                val now = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0)
+                // Hoy, desde la hora actual; otros días, las 24 horas.
+                val hours = forecast.hoursOf(openDay.date).filter { openDay.date != LocalDate.now() || !it.time.isBefore(now) }
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF06101E).copy(alpha = 0.72f), Color(0xFF06101E).copy(alpha = 0.85f))))) {
+                    HourlyDetail(openDay, hours, Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 8.dp))
+                }
+            } else
             Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
                 // Previsión
                 Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -127,16 +168,21 @@ fun WeatherScreen() {
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Pulsa un día para verlo por horas", style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         (f?.days ?: emptyList()).forEach { d ->
-                            Column(
-                                Modifier.width(150.dp).padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(dayLabel(d.date), style = MaterialTheme.typography.labelLarge, color = Cockpit.TextDim)
-                                WeatherIcon(wmoCondition(d.code).kind, true, Modifier.size(64.dp))
-                                Text("${d.minC}° / ${d.maxC}°", style = numeric(24, FontWeight.Medium))
-                                Text(wmoCondition(d.code).text, style = MaterialTheme.typography.labelMedium, color = Cockpit.TextDim, maxLines = 1)
+                            FocusTile(onClick = { selectedDay = d.date }, modifier = Modifier.width(150.dp).height(200.dp)) {
+                                Column(
+                                    Modifier.fillMaxSize().padding(vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(dayLabel(d.date), style = MaterialTheme.typography.labelLarge, color = Cockpit.TextDim)
+                                    WeatherIcon(wmoCondition(d.code).kind, true, Modifier.size(64.dp))
+                                    Text("${d.minC}° / ${d.maxC}°", style = numeric(24, FontWeight.Medium))
+                                    Text(d.precipProbMax?.let { "$it% lluvia" } ?: wmoCondition(d.code).text, style = MaterialTheme.typography.labelMedium, color = Cockpit.TextDim, maxLines = 1)
+                                }
                             }
                         }
                     }
@@ -186,3 +232,6 @@ fun WeatherScreen() {
         }
     }
 }
+
+/** Códigos que recorre el botón de prueba (null = el tiempo real). */
+private val TEST_CODES = listOf(null, 2, 3, 63, 95, 73, 45)

@@ -54,7 +54,10 @@ object WeatherRepository {
             val json = httpGet(
                 "https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}" +
                     "&current=temperature_2m,weather_code,is_day" +
-                    "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4",
+                    "&hourly=temperature_2m,apparent_temperature,weather_code,is_day,precipitation_probability,precipitation," +
+                    "wind_speed_10m,wind_direction_10m,wind_gusts_10m,relative_humidity_2m" +
+                    "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum," +
+                    "precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days=7",
             )
             val forecast = parseForecast(json)
             val now = System.currentTimeMillis()
