@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,12 +107,29 @@ fun FocusTile(
  */
 @Composable
 fun InitialFocus(requester: FocusRequester) {
+    DisposableEffect(requester) {
+        DefaultFocus.target = requester
+        onDispose { if (DefaultFocus.target === requester) DefaultFocus.target = null }
+    }
     LaunchedEffect(requester) {
         repeat(10) {
             if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(50)
         }
     }
+}
+
+/**
+ * Elemento por defecto de la pantalla visible. Tras tocar la pantalla (o al arrancar en modo
+ * táctil) nada tiene el foco; el primer giro de la ruleta lo lleva aquí en vez de a la barra lateral.
+ */
+object DefaultFocus {
+    var target: FocusRequester? = null
+
+    /** true al arrancar y tras cada toque: el siguiente giro de la ruleta coloca el foco. */
+    @Volatile var needsPlacement = true
+
+    fun request(): Boolean = target?.let { runCatching { it.requestFocus() }.isSuccess } == true
 }
 
 @Composable

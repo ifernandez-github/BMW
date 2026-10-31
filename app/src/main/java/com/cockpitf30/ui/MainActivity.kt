@@ -43,6 +43,7 @@ import com.cockpitf30.input.NavAction
 import com.cockpitf30.service.VehicleService
 import com.cockpitf30.system.AppSettings
 import com.cockpitf30.system.BatteryOptimization
+import com.cockpitf30.ui.components.DefaultFocus
 import com.cockpitf30.ui.components.SideItem
 import com.cockpitf30.ui.components.Sidebar
 import com.cockpitf30.ui.screens.AppsScreen
@@ -82,6 +83,12 @@ class MainActivity : ComponentActivity() {
                 CockpitRoot(navActions)
             }
         }
+    }
+
+    // Tras tocar la pantalla el foco deja de verse; el próximo giro de la ruleta lo volverá a colocar.
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) DefaultFocus.needsPlacement = true
+        return super.dispatchTouchEvent(ev)
     }
 
     // Interceptamos aquí, antes que las vistas, para que la ruleta siempre mueva el foco.
@@ -143,6 +150,11 @@ private fun CockpitRoot(navActions: SharedFlow<NavAction>) {
             // Tras tocar la pantalla Android entra en modo táctil y nada es enfocable:
             // al girar la ruleta volvemos a modo teclado para que el foco se mueva y se vea.
             if (inputMode.inputMode != InputMode.Keyboard) inputMode.requestInputMode(InputMode.Keyboard)
+            if (DefaultFocus.needsPlacement) {
+                DefaultFocus.needsPlacement = false
+                // Nada tenía el foco: el primer giro solo lo coloca en el elemento por defecto de la pantalla.
+                if (Reorder.moving.value == null && DefaultFocus.request()) return@collect
+            }
             val dir = if (it == NavAction.NEXT) 1 else -1
             // En modo mover, la ruleta desplaza la tarjeta en vez del foco.
             val step = Reorder.step
