@@ -50,6 +50,15 @@ import com.cockpitf30.ui.screens.DiagnosticsScreen
 import com.cockpitf30.ui.screens.HomeScreen
 import com.cockpitf30.ui.screens.Screen
 import com.cockpitf30.ui.screens.VehicleScreen
+import com.cockpitf30.ui.screens.Reorder
+import com.cockpitf30.ui.screens.WeatherScreen
+import com.cockpitf30.weather.WeatherRepository
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.cockpitf30.ui.screens.openMaps
 import com.cockpitf30.ui.screens.openMusic
 import com.cockpitf30.ui.theme.Cockpit
@@ -86,10 +95,18 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         VehicleRepository.logInput(IDriveInput.describe(event))
+        // Tras una pulsación larga de OK, nos comemos sus repeticiones y el soltar para que no haga clic.
+        if (swallowCenter && IDriveInput.isCenter(event.keyCode)) {
+            if (event.action == KeyEvent.ACTION_UP) swallowCenter = false
+            return true
+        }
         val action = IDriveInput.fromKey(event) ?: return super.dispatchKeyEvent(event)
+        if (action == NavAction.LONG_PRESS) swallowCenter = true
         navActions.tryEmit(action)
         return true
     }
+
+    private var swallowCenter = false
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -113,14 +130,41 @@ class MainActivity : ComponentActivity() {
 private fun CockpitRoot(navActions: SharedFlow<NavAction>) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
 
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(navActions) {
         navActions.collect {
+            if (it == NavAction.LONG_PRESS) {
+                Reorder.longPress.tryEmit(Unit)
+                return@collect
+            }
             // Tras tocar la pantalla Android entra en modo táctil y nada es enfocable:
             // al girar la ruleta volvemos a modo teclado para que el foco se mueva y se vea.
             if (inputMode.inputMode != InputMode.Keyboard) inputMode.requestInputMode(InputMode.Keyboard)
-            focusManager.moveFocus(if (it == NavAction.NEXT) FocusDirection.Next else FocusDirection.Previous)
+            val dir = if (it == NavAction.NEXT) 1 else -1
+            // En modo mover, la ruleta desplaza la tarjeta en vez del foco.
+            val step = Reorder.step
+            if (Reorder.moving.value != null && step != null) step(dir)
+            else focusManager.moveFocus(if (dir > 0) FocusDirection.Next else FocusDirection.Previous)
+        }
+    }
+
+    // Tiempo: refresco cada 30 min y, la primera vez, pedir permiso de ubicación.
+    val ctx = LocalContext.current
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        scope.launch { WeatherRepository.refresh(ctx) }
+    }
+    LaunchedEffect(Unit) {
+        val settings = AppSettings(ctx)
+        WeatherRepository.loadCache(ctx)
+        if (!settings.askedLocation && settings.weatherPlace == null && !WeatherRepository.hasLocationPermission(ctx)) {
+            settings.askedLocation = true
+            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+        }
+        while (true) {
+            WeatherRepository.refresh(ctx)
+            delay(30 * 60 * 1000L)
         }
     }
     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
@@ -153,6 +197,7 @@ private fun CockpitRoot(navActions: SharedFlow<NavAction>) {
                 Screen.VEHICLE -> VehicleScreen()
                 Screen.APPS -> AppsScreen()
                 Screen.DIAGNOSTICS -> DiagnosticsScreen()
+                Screen.WEATHER -> WeatherScreen()
             }
         }
     }

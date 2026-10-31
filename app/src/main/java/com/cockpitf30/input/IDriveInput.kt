@@ -5,7 +5,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 
 /** Acción de navegación independiente de cómo la mande la placa. */
-enum class NavAction { NEXT, PREVIOUS }
+enum class NavAction { NEXT, PREVIOUS, LONG_PRESS }
 
 /**
  * Traduce lo que llegue del iDrive a acciones de foco.
@@ -32,8 +32,15 @@ object IDriveInput {
         }
     }
 
+    /** OK/centro del iDrive mantenido: la primera repetición de la tecla marca la pulsación larga. */
+    fun isCenter(keyCode: Int) =
+        keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+
     fun fromKey(event: KeyEvent): NavAction? {
         if (event.action != KeyEvent.ACTION_DOWN) return null
+        if (isCenter(event.keyCode)) {
+            return if (event.repeatCount == 1 || (event.repeatCount > 0 && event.isLongPress)) NavAction.LONG_PRESS else null
+        }
         return when (event.keyCode) {
             KeyEvent.KEYCODE_TAB -> if (event.isShiftPressed) NavAction.PREVIOUS else NavAction.NEXT
             KeyEvent.KEYCODE_NAVIGATE_NEXT -> NavAction.NEXT

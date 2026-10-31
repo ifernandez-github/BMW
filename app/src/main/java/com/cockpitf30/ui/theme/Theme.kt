@@ -54,12 +54,15 @@ val Saira = FontFamily(
     Font(R.font.saira_bold, FontWeight.Bold),
 )
 
-/** Estilo numérico en Saira. */
+/** Estilo numérico en Saira, con dígitos tabulares para que las cifras no bailen al cambiar. */
 fun numeric(size: Int, weight: FontWeight = FontWeight.Normal) =
-    TextStyle(fontFamily = Saira, fontSize = size.sp, fontWeight = weight)
+    TextStyle(fontFamily = Saira, fontSize = size.sp, fontWeight = weight, fontFeatureSettings = "tnum")
 
 private fun style(size: Int, weight: FontWeight, spacing: Float = 0f, family: FontFamily = Inter) =
-    TextStyle(fontFamily = family, fontSize = size.sp, fontWeight = weight, letterSpacing = spacing.sp)
+    TextStyle(
+        fontFamily = family, fontSize = size.sp, fontWeight = weight, letterSpacing = spacing.sp,
+        fontFeatureSettings = if (family == Saira) "tnum" else null,
+    )
 
 private val typography = Typography(
     // Los estilos display son para cifras grandes: van en Saira.

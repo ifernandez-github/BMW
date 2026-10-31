@@ -1,6 +1,7 @@
 package com.cockpitf30.system
 
 import android.content.Context
+import com.cockpitf30.weather.Place
 
 enum class SourceMode(val label: String) {
     AUTO("Auto"),
@@ -30,7 +31,57 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_ASKED_BATTERY, false)
         set(value) = prefs.edit().putBoolean(KEY_ASKED_BATTERY, value).apply()
 
+    /** Orden de las tarjetas del Inicio (ids separados por comas); vacío = orden por defecto. */
+    var cardOrder: List<String>
+        get() = prefs.getString(KEY_CARD_ORDER, "")!!.split(',').filter { it.isNotBlank() }
+        set(value) = prefs.edit().putString(KEY_CARD_ORDER, value.joinToString(",")).apply()
+
+    /** Lugar elegido para el tiempo; null = usar la ubicación GPS. */
+    var weatherPlace: Place?
+        get() {
+            val name = prefs.getString(KEY_W_NAME, null) ?: return null
+            return Place(
+                name, prefs.getString(KEY_W_REGION, null), prefs.getString(KEY_W_COUNTRY, null),
+                prefs.getFloat(KEY_W_LAT, 0f).toDouble(), prefs.getFloat(KEY_W_LON, 0f).toDouble(),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    listOf(KEY_W_NAME, KEY_W_REGION, KEY_W_COUNTRY, KEY_W_LAT, KEY_W_LON).forEach(::remove)
+                } else {
+                    putString(KEY_W_NAME, value.name).putString(KEY_W_REGION, value.region).putString(KEY_W_COUNTRY, value.country)
+                    putFloat(KEY_W_LAT, value.lat.toFloat()).putFloat(KEY_W_LON, value.lon.toFloat())
+                }
+            }.apply()
+        }
+
+    /** Última previsión descargada, para mostrarla sin conexión. */
+    var weatherCache: Triple<String, String, Long>?
+        get() {
+            val json = prefs.getString(KEY_W_JSON, null) ?: return null
+            return Triple(json, prefs.getString(KEY_W_PLACE, "")!!, prefs.getLong(KEY_W_TIME, 0))
+        }
+        set(value) {
+            if (value == null) return
+            prefs.edit().putString(KEY_W_JSON, value.first).putString(KEY_W_PLACE, value.second).putLong(KEY_W_TIME, value.third).apply()
+        }
+
+    var askedLocation: Boolean
+        get() = prefs.getBoolean(KEY_ASKED_LOCATION, false)
+        set(value) = prefs.edit().putBoolean(KEY_ASKED_LOCATION, value).apply()
+
     private companion object {
+        const val KEY_CARD_ORDER = "card_order"
+        const val KEY_W_NAME = "weather_place_name"
+        const val KEY_W_REGION = "weather_place_region"
+        const val KEY_W_COUNTRY = "weather_place_country"
+        const val KEY_W_LAT = "weather_place_lat"
+        const val KEY_W_LON = "weather_place_lon"
+        const val KEY_W_JSON = "weather_cache_json"
+        const val KEY_W_PLACE = "weather_cache_place"
+        const val KEY_W_TIME = "weather_cache_time"
+        const val KEY_ASKED_LOCATION = "asked_location"
         const val KEY_SOURCE = "source"
         const val KEY_PATH = "serial_path"
         const val KEY_BAUD = "baud"

@@ -38,7 +38,7 @@ enum class CardTheme(val from: Color, val to: Color) {
     MUSIC(Color(0xFF8E2DE2), Color(0xFFFF4FB8)),
     NAV(Color(0xFF00C9A7), Color(0xFF29B6F6)),
     TRIP(Color(0xFF1C69D8), Color(0xFF4FA3FF)),
-    TYRES(Color(0xFF1C69D8), Color(0xFF8FB8F5)),
+    WEATHER(Color(0xFF0E7CC2), Color(0xFF7FD3FF)),
     VEHICLE(Color(0xFF5B7FAE), Color(0xFFC9D6E8)),
     PHONE(Color(0xFF1DB954), Color(0xFF7CF29C)),
     DIAG(Color(0xFFFF8F00), Color(0xFFFFD54F)),
@@ -95,7 +95,7 @@ fun BoxScope.CardArt(theme: CardTheme) {
         CardTheme.TRIP -> Box(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(width = 240.dp, height = 120.dp)) {
             Canvas(Modifier.fillMaxSize()) { lineChart(theme) }
         }
-        CardTheme.TYRES -> Unit
+        CardTheme.WEATHER -> Unit
     }
 }
 
