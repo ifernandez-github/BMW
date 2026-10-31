@@ -52,6 +52,7 @@ import com.cockpitf30.ui.screens.Screen
 import com.cockpitf30.ui.screens.VehicleScreen
 import com.cockpitf30.ui.screens.Reorder
 import com.cockpitf30.ui.screens.WeatherScreen
+import com.cockpitf30.ui.screens.PhoneScreen
 import com.cockpitf30.weather.WeatherRepository
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -198,6 +199,7 @@ private fun CockpitRoot(navActions: SharedFlow<NavAction>) {
                 Screen.APPS -> AppsScreen()
                 Screen.DIAGNOSTICS -> DiagnosticsScreen()
                 Screen.WEATHER -> WeatherScreen()
+                Screen.PHONE -> PhoneScreen()
             }
         }
     }

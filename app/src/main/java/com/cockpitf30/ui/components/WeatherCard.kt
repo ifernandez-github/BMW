@@ -56,7 +56,7 @@ fun WeatherCardContent(state: WeatherState, modifier: Modifier = Modifier) {
             )
             Text(updatedText(state), style = MaterialTheme.typography.labelMedium, color = if (state.error != null && f == null) Cockpit.Alert else Cockpit.TextDim, maxLines = 1)
             Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val next = f?.days?.drop(1)?.take(3).orEmpty()
                 (0 until 3).forEach { i ->
                     val d = next.getOrNull(i)
@@ -65,7 +65,7 @@ fun WeatherCardContent(state: WeatherState, modifier: Modifier = Modifier) {
                         Spacer(Modifier.height(4.dp))
                         WeatherIcon(d?.let { wmoCondition(it.code).kind } ?: WeatherKind.CLOUDY, true, Modifier.size(38.dp))
                         Spacer(Modifier.height(4.dp))
-                        Text(d?.let { "${it.minC}/${it.maxC}°" } ?: "--/--", style = numeric(17, FontWeight.Medium))
+                        Text(d?.let { "${it.minC}/${it.maxC}°" } ?: "--/--", style = numeric(16, FontWeight.Medium), maxLines = 1, softWrap = false)
                     }
                 }
             }

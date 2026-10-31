@@ -87,14 +87,24 @@ object WeatherRepository {
         return Place(name, null, null, location.latitude, location.longitude)
     }
 
+    /** Última posición conocida del sistema (sin esperar a una nueva), o null. */
     @SuppressLint("MissingPermission")
-    private suspend fun currentLocation(context: Context): Location? {
+    fun lastKnownLocation(context: Context): Location? {
         if (!hasLocationPermission(context)) return null
         val lm = context.getSystemService(LocationManager::class.java) ?: return null
-        val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        return enabledProviders(lm).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
+    }
+
+    private fun enabledProviders(lm: LocationManager) =
+        listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
             .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
-        providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-            .maxByOrNull { it.time }?.let { return it }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun currentLocation(context: Context): Location? {
+        lastKnownLocation(context)?.let { return it }
+        if (!hasLocationPermission(context)) return null
+        val lm = context.getSystemService(LocationManager::class.java) ?: return null
+        val providers = enabledProviders(lm)
         // Sin posición guardada: una petición única, con tiempo límite.
         val provider = providers.firstOrNull() ?: return null
         return withTimeoutOrNull(15_000) {

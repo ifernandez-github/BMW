@@ -4,6 +4,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
+import java.util.Locale
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -113,7 +115,7 @@ fun HomeScreen(onOpen: (Screen) -> Unit) {
             Card("trip", "Datos de viaje", "Velocidad y motor", CardTheme.TRIP, { onOpen(Screen.VEHICLE) }, Alignment.BottomStart) { TripBody(it) },
             Card("weather", "Tiempo", "", CardTheme.WEATHER, { onOpen(Screen.WEATHER) }),
             Card("vehicle", "Vehículo", "Puertas y neumáticos", CardTheme.VEHICLE, { onOpen(Screen.VEHICLE) }),
-            Card("phone", "Teléfono", "Marcador", CardTheme.PHONE, { ctx -> launch(ctx, Intent(Intent.ACTION_DIAL)) }),
+            Card("phone", "Teléfono", "Marcador y contactos", CardTheme.PHONE, { onOpen(Screen.PHONE) }),
             Card("diag", "Diagnóstico", "Fuente de datos e iDrive", CardTheme.DIAG, { onOpen(Screen.DIAGNOSTICS) }),
         ).associateBy { it.id }
     }
@@ -271,11 +273,30 @@ private fun Metric(value: String, unit: String, width: Dp) {
     }
 }
 
-internal fun openMaps(context: Context) = launch(
-    context,
-    context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
-        ?: Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0")),
-)
+private const val GOOGLE_MAPS = "com.google.android.apps.maps"
+
+/**
+ * Abre la app Google Maps instalada (no la web) centrada en la posición actual. Sin posición
+ * conocida, la abre normal (Maps se centra solo en la ubicación). Si no está instalada,
+ * cualquier app de mapas con un aviso.
+ */
+internal fun openMaps(context: Context) {
+    val pm = context.packageManager
+    val maps = pm.getLaunchIntentForPackage(GOOGLE_MAPS)
+    if (maps == null) {
+        Toast.makeText(context, "Google Maps no está instalado", Toast.LENGTH_SHORT).show()
+        launch(context, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0")))
+        return
+    }
+    val here = WeatherRepository.lastKnownLocation(context)
+    val intent = if (here != null) {
+        Intent(Intent.ACTION_VIEW, Uri.parse("geo:%.6f,%.6f?z=16".format(Locale.US, here.latitude, here.longitude)))
+            .setPackage(GOOGLE_MAPS)
+    } else {
+        maps
+    }
+    launch(context, intent)
+}
 
 internal fun openMusic(context: Context) = launch(
     context,
@@ -290,4 +311,4 @@ internal fun launch(context: Context, intent: Intent) {
     }
 }
 
-enum class Screen { HOME, VEHICLE, APPS, DIAGNOSTICS, WEATHER }
+enum class Screen { HOME, VEHICLE, APPS, DIAGNOSTICS, WEATHER, PHONE }
