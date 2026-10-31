@@ -37,13 +37,15 @@ fun dayLabel(date: LocalDate, today: LocalDate = LocalDate.now()): String =
  * descripción, localidad y los próximos 3 días. Sin datos muestra "--".
  */
 @Composable
-fun WeatherCardContent(state: WeatherState, modifier: Modifier = Modifier) {
+fun WeatherCardContent(state: WeatherState, modifier: Modifier = Modifier, animated: Boolean = false) {
     val f = state.forecast
     val condition = f?.let { wmoCondition(it.code) }
     val today = f?.days?.firstOrNull()
     Row(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.width(150.dp)) {
-            WeatherIcon(condition?.kind ?: WeatherKind.CLOUDY, f?.isDay ?: true, Modifier.size(84.dp))
+            // Con la escena animada detrás, el icono ya lo dibuja ella; aquí solo se reserva el sitio.
+            if (animated) Spacer(Modifier.size(84.dp))
+            else WeatherIcon(condition?.kind ?: WeatherKind.CLOUDY, f?.isDay ?: true, Modifier.size(84.dp))
             Spacer(Modifier.weight(1f))
             Text(f?.let { "${it.tempC}°" } ?: "--°", style = numeric(52, FontWeight.Medium), color = Cockpit.Text)
             Text(today?.let { "${it.minC}~${it.maxC}°" } ?: "--~--°", style = numeric(18), color = Cockpit.TextDim)

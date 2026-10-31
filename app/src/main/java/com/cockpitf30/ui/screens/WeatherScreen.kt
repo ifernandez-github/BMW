@@ -47,6 +47,12 @@ import com.cockpitf30.ui.components.FocusTile
 import com.cockpitf30.ui.components.InitialFocus
 import com.cockpitf30.ui.components.TopBar
 import com.cockpitf30.ui.components.WeatherIcon
+import com.cockpitf30.ui.components.WeatherScene
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import com.cockpitf30.ui.components.dayLabel
 import com.cockpitf30.ui.components.updatedText
 import com.cockpitf30.ui.theme.Cockpit
@@ -92,75 +98,86 @@ fun WeatherScreen() {
     val first = remember { FocusRequester() }
     InitialFocus(first)
 
-    Column(Modifier.fillMaxSize()) {
-        TopBar("Tiempo") {
-            Text(updatedText(weather), style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
+    Box(Modifier.fillMaxSize()) {
+        weather.forecast?.let { f ->
+            WeatherScene(wmoCondition(f.code).kind, f.isDay, f.code, Modifier.fillMaxSize(), maxParticles = 110, sunAt = Offset(0.5f, 0.36f))
+            // Velo oscuro a la derecha (selector) y abajo para que todo se lea sobre la animación.
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.58f to Color.Transparent, 0.7f to Color.Black.copy(alpha = 0.55f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
         }
-        Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            // Previsión
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                val f = weather.forecast
-                val c = f?.let { wmoCondition(it.code) }
-                Text(weather.placeName ?: "Sin localidad", style = MaterialTheme.typography.headlineSmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    WeatherIcon(c?.kind ?: WeatherKind.CLOUDY, f?.isDay ?: true, Modifier.size(150.dp))
-                    Spacer(Modifier.width(24.dp))
-                    Column {
-                        Text(f?.let { "${it.tempC}°" } ?: "--°", style = numeric(96, FontWeight.Medium))
-                        Text(c?.text ?: "Sin datos", style = MaterialTheme.typography.titleMedium, color = Cockpit.TextDim)
+        Column(Modifier.fillMaxSize()) {
+            TopBar("Tiempo") {
+                Text(updatedText(weather), style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
+            }
+            Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+                // Previsión
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    val f = weather.forecast
+                    val c = f?.let { wmoCondition(it.code) }
+                    Text(weather.placeName ?: "Sin localidad", style = MaterialTheme.typography.headlineSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Con datos, el sol, las nubes o la lluvia los dibuja la escena animada del fondo.
+                        if (f == null) {
+                            WeatherIcon(c?.kind ?: WeatherKind.CLOUDY, true, Modifier.size(150.dp))
+                            Spacer(Modifier.width(24.dp))
+                        }
+                        Column {
+                            Text(f?.let { "${it.tempC}°" } ?: "--°", style = numeric(96, FontWeight.Medium))
+                            Text(c?.text ?: "Sin datos", style = MaterialTheme.typography.titleMedium, color = Cockpit.TextDim)
+                        }
                     }
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    (f?.days ?: emptyList()).forEach { d ->
-                        Column(
-                            Modifier.width(150.dp).padding(vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(dayLabel(d.date), style = MaterialTheme.typography.labelLarge, color = Cockpit.TextDim)
-                            WeatherIcon(wmoCondition(d.code).kind, true, Modifier.size(64.dp))
-                            Text("${d.minC}° / ${d.maxC}°", style = numeric(24, FontWeight.Medium))
-                            Text(wmoCondition(d.code).text, style = MaterialTheme.typography.labelMedium, color = Cockpit.TextDim, maxLines = 1)
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        (f?.days ?: emptyList()).forEach { d ->
+                            Column(
+                                Modifier.width(150.dp).padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(dayLabel(d.date), style = MaterialTheme.typography.labelLarge, color = Cockpit.TextDim)
+                                WeatherIcon(wmoCondition(d.code).kind, true, Modifier.size(64.dp))
+                                Text("${d.minC}° / ${d.maxC}°", style = numeric(24, FontWeight.Medium))
+                                Text(wmoCondition(d.code).text, style = MaterialTheme.typography.labelMedium, color = Cockpit.TextDim, maxLines = 1)
+                            }
                         }
                     }
                 }
-            }
-            // Selección de localidad
-            Column(Modifier.width(620.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("LOCALIDAD", style = MaterialTheme.typography.labelLarge, color = Cockpit.BlueLight)
-                FocusTile(onClick = ::useGps, selected = usingGps, modifier = Modifier.fillMaxWidth().height(72.dp).focusRequester(first)) {
-                    Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.LocationOn, null, tint = Cockpit.BlueLight)
-                        Spacer(Modifier.width(14.dp))
-                        Text("Usar ubicación GPS", style = MaterialTheme.typography.titleMedium)
+                // Selección de localidad
+                Column(Modifier.width(620.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("LOCALIDAD", style = MaterialTheme.typography.labelLarge, color = Cockpit.BlueLight)
+                    FocusTile(onClick = ::useGps, selected = usingGps, modifier = Modifier.fillMaxWidth().height(72.dp).focusRequester(first)) {
+                        Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.LocationOn, null, tint = Cockpit.BlueLight)
+                            Spacer(Modifier.width(14.dp))
+                            Text("Usar ubicación GPS", style = MaterialTheme.typography.titleMedium)
+                        }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = query, onValueChange = { query = it },
-                        placeholder = { Text("Buscar localidad…") },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleMedium,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { search() }),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Cockpit.BlueLight, unfocusedBorderColor = Cockpit.GlassBorder,
-                            focusedTextColor = Cockpit.Text, unfocusedTextColor = Cockpit.Text, cursorColor = Cockpit.BlueLight,
-                        ),
-                        modifier = Modifier.weight(1f),
-                    )
-                    FocusTile(onClick = ::search, modifier = Modifier.size(72.dp)) {
-                        Icon(Icons.Filled.Search, null, Modifier.align(Alignment.Center).size(32.dp), tint = Cockpit.Text)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = query, onValueChange = { query = it },
+                            placeholder = { Text("Buscar localidad…") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { search() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Cockpit.BlueLight, unfocusedBorderColor = Cockpit.GlassBorder,
+                                focusedTextColor = Cockpit.Text, unfocusedTextColor = Cockpit.Text, cursorColor = Cockpit.BlueLight,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        FocusTile(onClick = ::search, modifier = Modifier.size(72.dp)) {
+                            Icon(Icons.Filled.Search, null, Modifier.align(Alignment.Center).size(32.dp), tint = Cockpit.Text)
+                        }
                     }
-                }
-                searchMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim) }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                    items(results) { place ->
-                        val selected = !usingGps && settings.weatherPlace?.let { it.lat == place.lat && it.lon == place.lon } == true
-                        FocusTile(onClick = { select(place) }, selected = selected, modifier = Modifier.fillMaxWidth().height(72.dp)) {
-                            Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.Center) {
-                                Text(place.name, style = MaterialTheme.typography.titleMedium)
-                                Text(place.subtitle, style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
+                    searchMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim) }
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        items(results) { place ->
+                            val selected = !usingGps && settings.weatherPlace?.let { it.lat == place.lat && it.lon == place.lon } == true
+                            FocusTile(onClick = { select(place) }, selected = selected, modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                                Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.Center) {
+                                    Text(place.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(place.subtitle, style = MaterialTheme.typography.bodyMedium, color = Cockpit.TextDim)
+                                }
                             }
                         }
                     }

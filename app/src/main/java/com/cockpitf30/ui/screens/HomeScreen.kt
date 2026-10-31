@@ -36,6 +36,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
 import com.cockpitf30.system.AppSettings
 import com.cockpitf30.ui.components.WeatherCardContent
+import com.cockpitf30.ui.components.WeatherScene
+import com.cockpitf30.weather.wmoCondition
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import com.cockpitf30.weather.WeatherRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -227,7 +232,13 @@ fun HomeScreen(onOpen: (Screen) -> Unit) {
                 ) {
                     Box(Modifier.fillMaxSize().drawBehind { glassBackground(card.theme) }) {
                         if (card.id == "weather") {
-                            WeatherCardContent(weather)
+                            weather.forecast?.let { f ->
+                                val c = wmoCondition(f.code)
+                                WeatherScene(c.kind, f.isDay, f.code, Modifier.matchParentSize(), maxParticles = 40, sunAt = Offset(0.17f, 0.24f))
+                                // Velo para que el texto se lea sobre la animación.
+                                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.55f)))))
+                            }
+                            WeatherCardContent(weather, animated = weather.forecast != null)
                         } else {
                             CardArt(card.theme)
                             Column(Modifier.fillMaxSize().padding(24.dp)) {
