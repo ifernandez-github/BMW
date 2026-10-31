@@ -6,6 +6,21 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.ContactsContract
+import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.cockpitf30.system.VoiceMatch
+import kotlinx.coroutines.delay
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -84,9 +99,61 @@ fun PhoneScreen() {
         if (granted(context, Manifest.permission.CALL_PHONE)) call(context, number) else callPermission.launch(Manifest.permission.CALL_PHONE)
     }
 
+    // Llamada por voz propia: lo dicho se busca en los contactos.
+    var candidates by remember { mutableStateOf<List<Contact>?>(null) }
+    var pending by remember { mutableStateOf<Contact?>(null) }
+    var voiceMessage by remember { mutableStateOf<String?>(null) }
+    fun handleSpoken(alternatives: List<String>) {
+        alternatives.firstNotNullOfOrNull(VoiceMatch::spokenNumber)?.let {
+            pending = Contact(it, it)
+            return
+        }
+        val found = alternatives.asSequence().map { VoiceMatch.match(it, contacts) { c -> c.name } }.firstOrNull { it.isNotEmpty() }
+        when {
+            found == null -> voiceMessage = "No encuentro \"${alternatives.firstOrNull().orEmpty()}\" en tus contactos"
+            found.size == 1 -> pending = found.first()
+            else -> candidates = found
+        }
+    }
+    val recognizer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
+        if (spoken.isNotEmpty()) handleSpoken(spoken)
+    }
+    fun listen() {
+        voiceMessage = null
+        if (!hasContacts) {
+            contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+            return
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "¿A quién llamo?")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+        runCatching { recognizer.launch(intent) }.onFailure { voiceMessage = "Este dispositivo no tiene reconocimiento de voz" }
+    }
+    // "Llamando a X" con 3 segundos para cancelar.
+    var countdown by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pending) {
+        val target = pending ?: return@LaunchedEffect
+        candidates = null
+        for (i in 3 downTo 1) {
+            countdown = i
+            delay(1_000)
+        }
+        number = target.number
+        pending = null
+        dial()
+    }
+    BackHandler(enabled = pending != null || candidates != null) {
+        pending = null
+        candidates = null
+    }
+
     val first = remember { FocusRequester() }
     InitialFocus(first)
 
+    pending?.let { CallingOverlay(it, countdown) { pending = null } }
     Column(Modifier.fillMaxSize()) {
         TopBar("Teléfono")
         Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
@@ -124,14 +191,24 @@ fun PhoneScreen() {
                 FocusTile(onClick = ::dial, modifier = Modifier.fillMaxWidth().height(100.dp)) {
                     Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(64.dp)) {
-                            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) { drawCircle(CallGreen) }
+                            Canvas(Modifier.fillMaxSize()) { drawCircle(CallGreen) }
                             Icon(Icons.Filled.Call, null, Modifier.align(Alignment.Center).size(36.dp), tint = Color.White)
                         }
                         Spacer(Modifier.width(20.dp))
                         Text("Llamar", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 36.sp))
                     }
                 }
-                Text("CONTACTOS", style = MaterialTheme.typography.labelLarge.copy(fontSize = 18.sp), color = Cockpit.BlueLight)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    VoiceButton("Asistente de Google", Modifier.weight(1f)) {
+                        if (!openAssistant(context)) voiceMessage = "No se encontró el Asistente de Google"
+                    }
+                    VoiceButton("Llamar por voz", Modifier.weight(1f), ::listen)
+                }
+                voiceMessage?.let { Text(it, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp), color = Cockpit.Alert) }
+                Text(
+                    if (candidates != null) "¿A QUIÉN LLAMO?" else "CONTACTOS",
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 18.sp), color = Cockpit.BlueLight,
+                )
                 if (!hasContacts) {
                     FocusTile(onClick = { contactsPermission.launch(Manifest.permission.READ_CONTACTS) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
                         Text("Permitir acceso a los contactos", Modifier.align(Alignment.Center), style = MaterialTheme.typography.headlineSmall.copy(fontSize = 30.sp))
@@ -140,8 +217,11 @@ fun PhoneScreen() {
                     Text("No hay contactos en este dispositivo", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 28.sp), color = Cockpit.TextDim)
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                    items(contacts, key = { it.name + it.number }) { contact ->
-                        FocusTile(onClick = { number = contact.number }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                    items(candidates ?: contacts, key = { it.name + it.number }) { contact ->
+                        FocusTile(
+                            onClick = { if (candidates != null) pending = contact else number = contact.number },
+                            modifier = Modifier.fillMaxWidth().height(96.dp),
+                        ) {
                             Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalArrangement = Arrangement.Center) {
                                 Text(contact.name, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 34.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(contact.number, style = numeric(24), color = Cockpit.TextDim, maxLines = 1)
@@ -176,4 +256,65 @@ private suspend fun loadContacts(context: Context): List<Contact> = withContext(
                 .distinctBy { it.name + it.number.filter(Char::isDigit) }
         } ?: emptyList()
     }.getOrDefault(emptyList())
+}
+
+/** Botón con micrófono para la voz. */
+@Composable
+private fun VoiceButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FocusTile(onClick = onClick, modifier = modifier.height(88.dp)) {
+        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(width = 26.dp, height = 40.dp)) { mic(Cockpit.BlueLight) }
+            Spacer(Modifier.width(16.dp))
+            Text(label, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 28.sp))
+        }
+    }
+}
+
+/** Micrófono dibujado: cápsula, arco y pie. */
+private fun DrawScope.mic(color: Color) {
+    val w = size.width
+    val h = size.height
+    drawRoundRect(color, Offset(w * 0.25f, 0f), Size(w * 0.5f, h * 0.62f), CornerRadius(w * 0.25f))
+    drawArc(color, 0f, 180f, false, Offset(w * 0.05f, h * 0.22f), Size(w * 0.9f, h * 0.55f), style = Stroke(w * 0.1f))
+    drawLine(color, Offset(w / 2, h * 0.77f), Offset(w / 2, h * 0.95f), w * 0.1f)
+    drawLine(color, Offset(w * 0.25f, h * 0.96f), Offset(w * 0.75f, h * 0.96f), w * 0.1f)
+}
+
+/** Aviso a pantalla completa "Llamando a X" con cuenta atrás y botón de cancelar. */
+@Composable
+private fun CallingOverlay(contact: Contact, seconds: Int, onCancel: () -> Unit) {
+    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(820.dp).background(Cockpit.SurfaceHigh, RoundedCornerShape(20.dp)).padding(40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Llamando a", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 30.sp), color = Cockpit.TextDim)
+            Text(contact.name, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 48.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (contact.name != contact.number) Text(contact.number, style = numeric(30), color = Cockpit.TextDim)
+            Spacer(Modifier.height(16.dp))
+            Text("$seconds", style = numeric(72, FontWeight.Medium), color = CallGreen)
+            Spacer(Modifier.height(16.dp))
+            val focus = remember { FocusRequester() }
+            InitialFocus(focus)
+            FocusTile(onClick = onCancel, modifier = Modifier.fillMaxWidth().height(96.dp).focusRequester(focus)) {
+                Text("Cancelar", Modifier.align(Alignment.Center), style = MaterialTheme.typography.headlineSmall.copy(fontSize = 34.sp))
+            }
+        }
+    }
+}
+
+/**
+ * Abre el Asistente de Google para que el usuario diga "llama a…". Prueba la orden de voz
+ * del sistema, luego el asistente predeterminado y por último la app de Google.
+ */
+private fun openAssistant(context: Context): Boolean {
+    val pm = context.packageManager
+    val options = listOfNotNull(
+        Intent(Intent.ACTION_VOICE_COMMAND),
+        Intent(Intent.ACTION_ASSIST),
+        pm.getLaunchIntentForPackage("com.google.android.googlequicksearchbox"),
+    )
+    val intent = options.firstOrNull { it.resolveActivity(pm) != null } ?: return false
+    launch(context, intent)
+    return true
 }
