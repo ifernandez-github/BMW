@@ -33,6 +33,7 @@ import com.cockpitf30.system.SourceMode
 import com.cockpitf30.ui.components.FocusTile
 import com.cockpitf30.ui.components.InitialFocus
 import com.cockpitf30.ui.components.TopBar
+import com.cockpitf30.ui.components.hexBackground
 import com.cockpitf30.ui.theme.Cockpit
 import com.cockpitf30.vehicle.VehicleRepository
 import com.cockpitf30.vehicle.source.CarPropertySource
@@ -73,7 +74,7 @@ fun DiagnosticsScreen() {
     val first = remember { FocusRequester() }
     InitialFocus(first)
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().hexBackground()) {
         TopBar("Diagnóstico")
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp),

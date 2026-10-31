@@ -4,7 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -60,11 +60,13 @@ fun MStripe(modifier: Modifier = Modifier, segment: Dp = 28.dp) {
  * Elemento enfocable con el resaltado azul del iDrive. Es la base de toda la navegación
  * con ruleta: cada cosa que se pueda pulsar debe ir dentro de uno.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun FocusTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -92,7 +94,7 @@ fun FocusTile(
             )
             .border(if (focused || selected) 2.dp else 1.dp, border, shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         content(focused)
     }

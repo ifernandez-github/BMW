@@ -148,9 +148,11 @@ fun HomeScreen(onOpen: (Screen) -> Unit) {
         Reorder.moving.value = null
     }
     DisposableEffect(Unit) {
-        Reorder.step = ::step
+        // Durante la transición entre pantallas conviven dos: cada una solo borra su propio manejador.
+        val mine: (Int) -> Unit = ::step
+        Reorder.step = mine
         onDispose {
-            Reorder.step = null
+            if (Reorder.step === mine) Reorder.step = null
             if (Reorder.moving.value != null) cancel()
         }
     }

@@ -67,11 +67,23 @@ class AppSettings(context: Context) {
             prefs.edit().putString(KEY_W_JSON, value.first).putString(KEY_W_PLACE, value.second).putLong(KEY_W_TIME, value.third).apply()
         }
 
+    /** Disposición de la pantalla de apps (orden y grupos) en JSON. */
+    var appsLayout: List<LayoutEntry>
+        get() = AppLayout.fromJson(prefs.getString(KEY_APPS_LAYOUT, null))
+        set(value) = prefs.edit().putString(KEY_APPS_LAYOUT, AppLayout.toJson(value)).apply()
+
+    /** true = apps de la A a la Z; false = orden personalizado. */
+    var appsAlphabetical: Boolean
+        get() = prefs.getBoolean(KEY_APPS_AZ, false)
+        set(value) = prefs.edit().putBoolean(KEY_APPS_AZ, value).apply()
+
     var askedLocation: Boolean
         get() = prefs.getBoolean(KEY_ASKED_LOCATION, false)
         set(value) = prefs.edit().putBoolean(KEY_ASKED_LOCATION, value).apply()
 
     private companion object {
+        const val KEY_APPS_LAYOUT = "apps_layout"
+        const val KEY_APPS_AZ = "apps_az"
         const val KEY_CARD_ORDER = "card_order"
         const val KEY_W_NAME = "weather_place_name"
         const val KEY_W_REGION = "weather_place_region"
