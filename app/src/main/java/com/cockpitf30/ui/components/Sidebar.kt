@@ -1,6 +1,8 @@
 package com.cockpitf30.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +27,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cockpitf30.ui.theme.Cockpit
 
-class SideItem(val label: String, val icon: ImageVector, val active: Boolean, val onClick: () -> Unit)
+class SideItem(
+    val label: String,
+    val icon: ImageVector,
+    val active: Boolean,
+    val onLongClick: (() -> Unit)? = null,
+    val onClick: () -> Unit,
+)
 
 /**
  * Columna fija de accesos rápidos a la izquierda, la zona más cercana al conductor.
@@ -38,13 +46,15 @@ fun Sidebar(items: List<SideItem>, modifier: Modifier = Modifier) {
             .width(96.dp)
             .fillMaxHeight()
             .background(Brush.horizontalGradient(listOf(Cockpit.Surface, Cockpit.Surface.copy(alpha = 0.6f))))
+            // Desplazable: si la pantalla es más baja de lo previsto, nada queda fuera de alcance.
+            .verticalScroll(rememberScrollState())
             .padding(vertical = 20.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         MStripe(Modifier.padding(bottom = 12.dp), segment = 18.dp)
         items.forEach { item ->
-            FocusTile(onClick = item.onClick, selected = item.active, modifier = Modifier.fillMaxWidth().height(88.dp)) { focused ->
+            FocusTile(onClick = item.onClick, onLongClick = item.onLongClick, selected = item.active, modifier = Modifier.fillMaxWidth().height(88.dp)) { focused ->
                 Column(
                     Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,

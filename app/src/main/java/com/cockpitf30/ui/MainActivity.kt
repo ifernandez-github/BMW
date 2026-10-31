@@ -184,7 +184,8 @@ private fun CockpitRoot(navActions: SharedFlow<NavAction>) {
 
     val context = LocalContext.current
     val sideItems = listOf(
-        SideItem("Home", Icons.Filled.Home, screen == Screen.HOME) { screen = Screen.HOME },
+        // Pulsación larga en Home: atajo a Diagnóstico.
+        SideItem("Home", Icons.Filled.Home, screen == Screen.HOME, onLongClick = { screen = Screen.DIAGNOSTICS }) { screen = Screen.HOME },
         SideItem("Navegación", Icons.Filled.LocationOn, false) { openMaps(context) },
         SideItem("Música", Icons.Filled.PlayArrow, false) { openMusic(context) },
         SideItem("Apps", Icons.Filled.Menu, screen == Screen.APPS) { screen = Screen.APPS },

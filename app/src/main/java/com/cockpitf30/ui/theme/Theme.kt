@@ -6,7 +6,12 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -93,6 +98,35 @@ fun CockpitTheme(content: @Composable () -> Unit) {
         typography = typography,
     ) {
         // Sin Surface en la raíz, el Text sin color heredaría negro: lo fijamos aquí para toda la app.
-        CompositionLocalProvider(LocalContentColor provides Cockpit.Text, content = content)
+        CompositionLocalProvider(LocalContentColor provides Cockpit.Text) {
+            DesignScale(content)
+        }
+    }
+}
+
+/** Lienzo de diseño: toda la interfaz está pensada para 1920x720 dp (la ZQ9109 a 160 dpi). */
+const val DESIGN_WIDTH_DP = 1920f
+const val DESIGN_HEIGHT_DP = 720f
+
+/** Densidad aplicada por [DesignScale], para mostrarla en Diagnóstico. */
+var appliedDesignDensity: Float = 0f
+    private set
+
+/**
+ * Escala la interfaz para que la pantalla real equivalga siempre al lienzo de diseño, sea cual sea
+ * la densidad o el tamaño de letra que traiga la radio (algunas usan 240 dpi y todo se salía).
+ */
+@Composable
+private fun DesignScale(content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight || w <= 0f || h <= 0f) {
+            content()
+            return@BoxWithConstraints
+        }
+        val density = minOf(w / DESIGN_WIDTH_DP, h / DESIGN_HEIGHT_DP)
+        appliedDesignDensity = density
+        CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 1f), content = content)
     }
 }

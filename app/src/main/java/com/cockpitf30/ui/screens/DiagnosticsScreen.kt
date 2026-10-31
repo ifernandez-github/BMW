@@ -38,6 +38,9 @@ import com.cockpitf30.ui.theme.Cockpit
 import com.cockpitf30.vehicle.VehicleRepository
 import com.cockpitf30.vehicle.source.CarPropertySource
 import com.cockpitf30.vehicle.source.SerialSource
+import com.cockpitf30.ui.theme.DESIGN_HEIGHT_DP
+import com.cockpitf30.ui.theme.DESIGN_WIDTH_DP
+import com.cockpitf30.ui.theme.appliedDesignDensity
 
 /**
  * Herramientas para descubrir cómo habla esta placa: elegir fuente y puerto, ver tramas
@@ -108,6 +111,15 @@ fun DiagnosticsScreen() {
                     baud = BAUDS[it]
                     apply()
                 }
+            }
+            item {
+                // Para ajustar la interfaz a radios con otra densidad o tamaño de letra.
+                val dm = context.resources.displayMetrics
+                val cfg = context.resources.configuration
+                Section("Pantalla")
+                Info("${dm.widthPixels} x ${dm.heightPixels} px · ${dm.densityDpi} dpi · densidad ${"%.2f".format(dm.density)} · letra x${"%.2f".format(cfg.fontScale)}")
+                Info("Escala aplicada: ${"%.3f".format(appliedDesignDensity)} (lienzo ${DESIGN_WIDTH_DP.toInt()}x${DESIGN_HEIGHT_DP.toInt()})")
+                Info("Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT}) · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             }
             item {
                 Section("Batería")
